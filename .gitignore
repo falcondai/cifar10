@@ -1,0 +1,4 @@
+checkpoints/
+tf-log/
+data
+*.pyc
