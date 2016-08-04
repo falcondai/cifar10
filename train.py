@@ -23,9 +23,6 @@ def restore_vars(saver, sess, checkpoint_dir, restart=False):
             return False
         else:
             print '* restoring from %s' % path
-            # meta_path = path + '.meta'
-            # old_saver = tf.train.import_meta_graph(meta_path)
-            # old_saver.restore(sess, path)
             saver.restore(sess, path)
             return True
 
@@ -117,8 +114,6 @@ def main():
                     label_ph: y[ind],
                     keep_prob_ph: 1.0,
                 }
-                # print 'step', i,
-                # print 'loss %g accuracy %g', sess.run([loss, accuracy], feed_dict=val_feed)
                 writer.add_summary(sess.run(summary_op, feed_dict=val_feed), global_step.eval())
 
             train_feed = {
