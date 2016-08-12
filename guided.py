@@ -3,6 +3,8 @@ import numpy as np
 import os, sys, cPickle, time, glob, itertools
 import tqdm
 import argparse
+from guided_relu_op import *
+from pylab import *
 
 def restore_vars(sess, checkpoint_path, latest, meta_path=None):
     """ Restore saved net, global score and step, and epsilons OR
@@ -29,10 +31,8 @@ def main():
     parse.add_argument('--checkpoint_path', required=True)
     parse.add_argument('--meta_path')
     parse.add_argument('--latest', action='store_true')
-    parse.add_argument('--batch_size', type=int, default=32)
 
     args = parse.parse_args()
-    n_classes = 10
 
     # load data
     print '* loading data from'
@@ -44,8 +44,8 @@ def main():
             d = cPickle.load(f)
         x.append(d['data'].reshape((-1, 3, 32, 32)).astype('float').transpose([0, 2, 3, 1]) / 255.)
         y.append(np.asarray(d['labels'], dtype='int64'))
-    x = np.vstack(x)
-    y = np.hstack(y)
+    x = np.vstack(x)[:100]
+    y = np.hstack(y)[:100]
     print x.shape, y.shape
 
     # load label array
@@ -67,31 +67,43 @@ def main():
         predicted_labels = tf.argmax(logits, 1)
         correct_prediction = tf.equal(tf.argmax(logits, 1), label_ph)
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-        confusion_matrix = np.zeros((n_classes, n_classes), dtype='int32')
+        confusion_matrix = np.zeros((10, 10), dtype='int32')
+
+        max_logit = tf.reduce_max(logits)
 
         n_samples = len(x)
-        n_steps = np.ceil(n_samples * 1. / args.batch_size)
         total_accuracy = 0.
-        for i in tqdm.tqdm(xrange(int(n_steps))):
-            start = i * args.batch_size
-            end = min(start + args.batch_size, n_samples)
+        for i in tqdm.tqdm(xrange(n_samples)):
             val_feed = {
-                img_ph: x[start:end],
-                label_ph: y[start:end],
+                img_ph: x[[i]],
+                label_ph: y[[i]],
                 keep_prob_ph: 1.0,
             }
             acc_val, pred_val = sess.run([accuracy, predicted_labels], feed_dict=val_feed)
-            total_accuracy += acc_val * (end - start)
-            for gt, pred in zip(y[start:end], pred_val):
-                confusion_matrix[gt, pred] += 1
+            total_accuracy += acc_val
+            confusion_matrix[y[i], pred_val[0]] += 1
+
+            # guided back propagation
+            with tf.get_default_graph().gradient_override_map({'Relu': 'GuidedRelu'}):
+                # gs = tf.gradients(-loss, img_ph)[0].eval(feed_dict=val_feed)
+                gs = tf.gradients(max_logit, img_ph)[0].eval(feed_dict=val_feed)
+                suptitle('gt: %s pred: %s' % (labels[y[i]], labels[pred_val[0]]))
+                subplot(321)
+                imshow(x[i], interpolation='none')
+                subplot(322)
+                imshow(np.abs(gs[0]).max(axis=-1), interpolation='none', cmap='gray')
+                subplot(323)
+                imshow(np.maximum(0, gs[0]) / gs[0].max(), interpolation='none')
+                subplot(324)
+                imshow(np.maximum(0, -gs[0]) / (-gs[0]).max(), interpolation='none')
+                subplot(325)
+                imshow(x[i] + 0.1 * gs[0], interpolation='none')
+                subplot(326)
+                imshow(x[i] * np.expand_dims(np.abs(gs[0]).max(axis=-1), 2) / np.abs(gs[0]).max(), interpolation='none')
+                savefig('guided/%i.png' % i)
+
         print 'total accuracy', total_accuracy / n_samples
         print confusion_matrix
-        # per class accuracy
-        for k in xrange(n_classes):
-            count = confusion_matrix[k].sum()
-            precision = confusion_matrix[k, k] * 1. / confusion_matrix[:, k].sum()
-            recall = confusion_matrix[k, k] * 1. / confusion_matrix[k, :].sum()
-            print 'class %i %s: count %i precision %g recall %g' % (k, labels[k], count, precision, recall)
 
 if __name__ == '__main__':
     main()

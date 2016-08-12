@@ -81,6 +81,7 @@ def build_model(n_classes=10):
         fc1 = tf.contrib.layers.fully_connected(
             inputs=tf.contrib.layers.flatten(conv_output),
             num_outputs=128,
+            activation_fn=tf.nn.relu,
             biases_initializer=tf.zeros,
             weights_initializer=tf.contrib.layers.xavier_initializer(),
             scope='fc1'

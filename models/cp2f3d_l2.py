@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 
-def build_model(n_classes=10, batch=None):
-    img_ph = tf.placeholder('float', [batch, 32, 32, 3], name='image')
+def build_model(width=32, n_classes=10, batch=None):
+    img_ph = tf.placeholder('float', [batch, width, width, 3], name='image')
     keep_prob_ph = tf.placeholder('float', name='keep_prob')
     tf.add_to_collection('inputs', img_ph)
     tf.add_to_collection('inputs', keep_prob_ph)
@@ -40,6 +40,7 @@ def build_model(n_classes=10, batch=None):
             activation_fn=tf.nn.relu,
             biases_initializer=tf.zeros_initializer,
             weights_initializer=tf.contrib.layers.xavier_initializer(),
+            weights_regularizer=tf.contrib.layers.l2_regularizer(1.),
             scope='fc1'
         )
 
@@ -49,6 +50,7 @@ def build_model(n_classes=10, batch=None):
             activation_fn=tf.nn.relu,
             biases_initializer=tf.zeros_initializer,
             weights_initializer=tf.contrib.layers.xavier_initializer(),
+            weights_regularizer=tf.contrib.layers.l2_regularizer(1.),
             scope='fc2'
         )
 

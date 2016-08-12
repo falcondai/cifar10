@@ -41,13 +41,15 @@ def main():
     parse.add_argument('--no_decay_staircase', action='store_true')
     parse.add_argument('--decay_rate', type=float, default=0.8)
     parse.add_argument('--dropout_rate', type=float, default=0.2)
+    parse.add_argument('--reg_coeff', type=float, default=0.0001)
     parse.add_argument('--momentum', type=float, default=0.8)
-    parse.add_argument('--beta1', type=float, default=0.9)
-    parse.add_argument('--beta2', type=float, default=0.999)
-    parse.add_argument('--epsilon', type=float, default=1e-8)
+    parse.add_argument('--adam_beta1', type=float, default=0.9)
+    parse.add_argument('--adam_beta2', type=float, default=0.999)
+    parse.add_argument('--adam_epsilon', type=float, default=1e-8)
     parse.add_argument('--np_seed', type=int, default=123)
     parse.add_argument('--tf_seed', type=int, default=1234)
     parse.add_argument('--restart', action='store_true')
+    parse.add_argument('--no_summary', action='store_true')
 
     args = parse.parse_args()
     summary_dir = 'tf-log/%s-%d' % (os.path.basename(args.checkpoint_dir), time.time())
@@ -59,7 +61,7 @@ def main():
     print '* loading data from'
     x = []
     y = []
-    for path in glob.glob('data/cifar-10-batches-py/data_batch_*'):
+    for path in sorted(glob.glob('data/cifar-10-batches-py/data_batch_*')):
         print path
         with open(path, 'rb') as f:
             d = cPickle.load(f)
@@ -75,18 +77,21 @@ def main():
     print labels
 
     # model
+    print '* building model %s' % args.model
     img_ph, keep_prob_ph, logits, probs = model.build_model()
     label_ph = tf.placeholder('int64', name='label')
 
     # loss
-    loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, label_ph), name='loss')
+    regularizer = sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+    class_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, label_ph), name='class_loss')
+    loss = class_loss + args.reg_coeff * regularizer
 
     # optimization
     global_step = tf.Variable(0, trainable=False, name='global_step')
     learning_rate = tf.train.exponential_decay(args.initial_learning_rate, global_step, args.n_decay_steps, args.decay_rate, staircase=not args.no_decay_staircase)
 
     if args.optimizer == 'adam':
-        train_op = tf.train.AdamOptimizer(learning_rate, args.beta1, args.beta2, args.epsilon).minimize(loss, global_step=global_step)
+        train_op = tf.train.AdamOptimizer(learning_rate, args.adam_beta1, args.adam_beta2, args.adam_epsilon).minimize(loss, global_step=global_step)
     else:
         train_op = tf.train.MomentumOptimizer(learning_rate, args.momentum).minimize(loss, global_step=global_step)
 
@@ -95,30 +100,46 @@ def main():
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
     # summary
-    tf.scalar_summary('learning_rate', learning_rate)
-    tf.scalar_summary('loss', loss)
-    tf.scalar_summary('accuracy', accuracy)
-    summary_op = tf.merge_all_summaries()
+    if not args.no_summary:
+        tf.scalar_summary('learning_rate', learning_rate)
+        tf.scalar_summary('class_loss', class_loss)
+        tf.scalar_summary('regularizer', regularizer)
+        tf.scalar_summary('loss', loss)
+        tf.scalar_summary('accuracy', accuracy)
+        summary_op = tf.merge_all_summaries()
 
     saver = tf.train.Saver(max_to_keep=2, keep_checkpoint_every_n_hours=1)
     with tf.Session() as sess:
-        writer = tf.train.SummaryWriter(summary_dir, sess.graph)
+        if not args.no_summary:
+            writer = tf.train.SummaryWriter(summary_dir, sess.graph, flush_secs=60)
         restore_vars(saver, sess, args.checkpoint_dir, args.restart)
+
+        print '* regularized parameters:'
+        for v in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES):
+            print v.name
+
+        print '* training hyperparameters:'
+        for k in vars(args):
+            print k, getattr(args, k)
 
         n_samples = len(x)
         for i in tqdm.tqdm(xrange(args.n_train_steps)):
-            ind = np.random.choice(n_samples, args.batch_size, replace=False)
+            # ind = np.random.choice(n_samples, args.batch_size, replace=False)
+            start = np.random.randint(0, n_samples - args.batch_size)
+            batch_x = x[start:start + args.batch_size]
+            batch_y = y[start:start + args.batch_size]
             if i % args.n_eval_interval == 0:
                 val_feed = {
-                    img_ph: x[ind],
-                    label_ph: y[ind],
+                    img_ph: batch_x,
+                    label_ph: batch_y,
                     keep_prob_ph: 1.0,
                 }
-                writer.add_summary(sess.run(summary_op, feed_dict=val_feed), global_step.eval())
+                if not args.no_summary:
+                    writer.add_summary(sess.run(summary_op, feed_dict=val_feed), global_step.eval())
 
             train_feed = {
-                img_ph: x[ind],
-                label_ph: y[ind],
+                img_ph: batch_x,
+                label_ph: batch_y,
                 keep_prob_ph: 1. - args.dropout_rate,
             }
             train_op.run(feed_dict=train_feed)
@@ -126,6 +147,8 @@ def main():
             if i % args.n_save_interval == 0:
                 saver.save(sess, args.checkpoint_dir + '/model', global_step=global_step.eval())
 
+        # save again at the end
+        saver.save(sess, args.checkpoint_dir + '/model', global_step=global_step.eval())
 
 if __name__ == '__main__':
     main()

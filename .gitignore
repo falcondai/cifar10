@@ -2,3 +2,6 @@ checkpoints/
 tf-log/
 data
 *.pyc
+.DS_Store
+dream/
+guided/
