@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import tensorflow as tf
 import numpy as np
 import os, sys, cPickle, time, glob, itertools
@@ -119,12 +121,11 @@ def main():
             print v.name
 
         print '* training hyperparameters:'
-        for k in vars(args):
+        for k in sorted(vars(args)):
             print k, getattr(args, k)
 
         n_samples = len(x)
         for i in tqdm.tqdm(xrange(args.n_train_steps)):
-            # ind = np.random.choice(n_samples, args.batch_size, replace=False)
             start = np.random.randint(0, n_samples - args.batch_size)
             batch_x = x[start:start + args.batch_size]
             batch_y = y[start:start + args.batch_size]
