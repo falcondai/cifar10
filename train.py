@@ -7,16 +7,16 @@ import tqdm
 import argparse
 import importlib
 
+def get_current_run_id(checkpoint_dir):
+    paths = glob.glob('%s/hyperparameters.*.txt' % checkpoint_dir)
+    if len(paths) == 0:
+        return 0
+    return sorted(map(lambda p: int(p.split('.')[-2]), paths))[-1] + 1
+
 def restore_vars(saver, sess, checkpoint_dir, restart=False):
     """ Restore saved net, global score and step, and epsilons OR
     create checkpoint directory for later storage. """
     sess.run(tf.initialize_all_variables())
-
-    if not os.path.exists(checkpoint_dir):
-        try:
-            os.makedirs(checkpoint_dir)
-        except OSError:
-            pass
 
     if not restart:
         path = tf.train.latest_checkpoint(checkpoint_dir)
@@ -27,9 +27,118 @@ def restore_vars(saver, sess, checkpoint_dir, restart=False):
             print '* restoring from %s' % path
             saver.restore(sess, path)
             return True
+    print '* overwriting checkpoints at %s' % checkpoint_dir
+    return False
 
-def main():
-    # arguments
+def load_train_data(data_dir='data/cifar-10-batches-py'):
+    # load data
+    print '* loading data from'
+    x = []
+    y = []
+    for path in sorted(glob.glob('%s/data_batch_*' % data_dir)):
+        print path
+        with open(path, 'rb') as f:
+            d = cPickle.load(f)
+        x.append(d['data'].reshape((-1, 3, 32, 32)).astype('float').transpose([0, 2, 3, 1]) / 255.)
+        y.append(np.asarray(d['labels'], dtype='int64'))
+    x = np.vstack(x)
+    y = np.hstack(y)
+    print '* dataset shapes:', x.shape, y.shape
+    return x, y
+
+def train(x, y, args):
+    summary_dir = 'tf-log/%s-%d' % (os.path.basename(args['checkpoint_dir']), time.time())
+
+    # set seeds
+    np.random.seed(args['np_seed'])
+    tf.set_random_seed(args['tf_seed'])
+
+    # create checkpoint dirs
+    if not os.path.exists(args['checkpoint_dir']):
+        try:
+            os.makedirs(args['checkpoint_dir'])
+        except OSError:
+            pass
+
+    print '* training hyperparameters:'
+    n_run = get_current_run_id(args['checkpoint_dir'])
+    with open('%s/hyperparameters.%i.txt' % (args['checkpoint_dir'], n_run), 'wb') as hpf:
+        for k in sorted(args.keys()):
+            print k, args[k]
+            hpf.write('%s = %r\n' % (k, args[k]))
+
+    with tf.Graph().as_default() as g:
+        # model
+        print '* building model %s' % args['model']
+        model = importlib.import_module('models.%s' % args['model'])
+        img_ph, keep_prob_ph, logits, probs = model.build_model()
+        label_ph = tf.placeholder('int64', name='label')
+
+        # loss
+        regularizer = sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+        class_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, label_ph), name='class_loss')
+        loss = class_loss + args['reg_coeff'] * regularizer
+
+        # optimization
+        global_step = tf.Variable(0, trainable=False, name='global_step')
+        learning_rate = tf.train.exponential_decay(args['initial_learning_rate'], global_step, args['n_decay_steps'], args['decay_rate'], staircase=not args['no_decay_staircase'])
+
+        if args['optimizer'] == 'adam':
+            train_op = tf.train.AdamOptimizer(learning_rate, args['adam_beta1'], args['adam_beta2'], args['adam_epsilon']).minimize(loss, global_step=global_step)
+        else:
+            train_op = tf.train.MomentumOptimizer(learning_rate, args['momentum']).minimize(loss, global_step=global_step)
+
+        # evaluation
+        correct_prediction = tf.equal(tf.argmax(logits, 1), label_ph)
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+        # summary
+        if not args['no_summary']:
+            tf.scalar_summary('learning_rate', learning_rate)
+            tf.scalar_summary('class_loss', class_loss)
+            tf.scalar_summary('regularizer', regularizer)
+            tf.scalar_summary('loss', loss)
+            tf.scalar_summary('accuracy', accuracy)
+            summary_op = tf.merge_all_summaries()
+
+        saver = tf.train.Saver(max_to_keep=2, keep_checkpoint_every_n_hours=1)
+        with tf.Session() as sess:
+            if not args['no_summary']:
+                writer = tf.train.SummaryWriter(summary_dir, sess.graph, flush_secs=60)
+            restore_vars(saver, sess, args['checkpoint_dir'], args['restart'])
+
+            print '* regularized parameters:'
+            for v in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES):
+                print v.name
+
+            n_samples = len(x)
+            for i in tqdm.tqdm(xrange(args['n_train_steps'])):
+                start = np.random.randint(0, n_samples - args['batch_size'])
+                batch_x = x[start:start + args['batch_size']]
+                batch_y = y[start:start + args['batch_size']]
+                if i % args['n_eval_interval'] == 0:
+                    val_feed = {
+                        img_ph: batch_x,
+                        label_ph: batch_y,
+                        keep_prob_ph: 1.0,
+                    }
+                    if not args['no_summary']:
+                        writer.add_summary(sess.run(summary_op, feed_dict=val_feed), global_step.eval())
+
+                train_feed = {
+                    img_ph: batch_x,
+                    label_ph: batch_y,
+                    keep_prob_ph: 1. - args['dropout_rate'],
+                }
+                train_op.run(feed_dict=train_feed)
+
+                if i % args['n_save_interval'] == 0:
+                    saver.save(sess, args['checkpoint_dir'] + '/model', global_step=global_step.eval())
+
+            # save again at the end
+            saver.save(sess, args['checkpoint_dir'] + '/model', global_step=global_step.eval())
+
+def build_argparser():
     parse = argparse.ArgumentParser()
     parse.add_argument('--checkpoint_dir', required=True)
     parse.add_argument('--batch_size', type=int, default=32)
@@ -53,103 +162,16 @@ def main():
     parse.add_argument('--restart', action='store_true')
     parse.add_argument('--no_summary', action='store_true')
 
-    args = parse.parse_args()
-    summary_dir = 'tf-log/%s-%d' % (os.path.basename(args.checkpoint_dir), time.time())
-    np.random.seed(args.np_seed)
-    tf.set_random_seed(args.tf_seed)
-    model = importlib.import_module('models.%s' % args.model)
+    return parse
 
-    # load data
-    print '* loading data from'
-    x = []
-    y = []
-    for path in sorted(glob.glob('data/cifar-10-batches-py/data_batch_*')):
-        print path
-        with open(path, 'rb') as f:
-            d = cPickle.load(f)
-        x.append(d['data'].reshape((-1, 3, 32, 32)).astype('float').transpose([0, 2, 3, 1]) / 255.)
-        y.append(np.asarray(d['labels'], dtype='int64'))
-    x = np.vstack(x)
-    y = np.hstack(y)
-    print x.shape, y.shape
-
-    # load label array
-    with open('data/cifar-10-batches-py/batches.meta', 'rb') as f:
-        labels = cPickle.load(f)['label_names']
-    print labels
-
-    # model
-    print '* building model %s' % args.model
-    img_ph, keep_prob_ph, logits, probs = model.build_model()
-    label_ph = tf.placeholder('int64', name='label')
-
-    # loss
-    regularizer = sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-    class_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, label_ph), name='class_loss')
-    loss = class_loss + args.reg_coeff * regularizer
-
-    # optimization
-    global_step = tf.Variable(0, trainable=False, name='global_step')
-    learning_rate = tf.train.exponential_decay(args.initial_learning_rate, global_step, args.n_decay_steps, args.decay_rate, staircase=not args.no_decay_staircase)
-
-    if args.optimizer == 'adam':
-        train_op = tf.train.AdamOptimizer(learning_rate, args.adam_beta1, args.adam_beta2, args.adam_epsilon).minimize(loss, global_step=global_step)
-    else:
-        train_op = tf.train.MomentumOptimizer(learning_rate, args.momentum).minimize(loss, global_step=global_step)
-
-    # evaluation
-    correct_prediction = tf.equal(tf.argmax(logits, 1), label_ph)
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
-    # summary
-    if not args.no_summary:
-        tf.scalar_summary('learning_rate', learning_rate)
-        tf.scalar_summary('class_loss', class_loss)
-        tf.scalar_summary('regularizer', regularizer)
-        tf.scalar_summary('loss', loss)
-        tf.scalar_summary('accuracy', accuracy)
-        summary_op = tf.merge_all_summaries()
-
-    saver = tf.train.Saver(max_to_keep=2, keep_checkpoint_every_n_hours=1)
-    with tf.Session() as sess:
-        if not args.no_summary:
-            writer = tf.train.SummaryWriter(summary_dir, sess.graph, flush_secs=60)
-        restore_vars(saver, sess, args.checkpoint_dir, args.restart)
-
-        print '* regularized parameters:'
-        for v in tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES):
-            print v.name
-
-        print '* training hyperparameters:'
-        for k in sorted(vars(args)):
-            print k, getattr(args, k)
-
-        n_samples = len(x)
-        for i in tqdm.tqdm(xrange(args.n_train_steps)):
-            start = np.random.randint(0, n_samples - args.batch_size)
-            batch_x = x[start:start + args.batch_size]
-            batch_y = y[start:start + args.batch_size]
-            if i % args.n_eval_interval == 0:
-                val_feed = {
-                    img_ph: batch_x,
-                    label_ph: batch_y,
-                    keep_prob_ph: 1.0,
-                }
-                if not args.no_summary:
-                    writer.add_summary(sess.run(summary_op, feed_dict=val_feed), global_step.eval())
-
-            train_feed = {
-                img_ph: batch_x,
-                label_ph: batch_y,
-                keep_prob_ph: 1. - args.dropout_rate,
-            }
-            train_op.run(feed_dict=train_feed)
-
-            if i % args.n_save_interval == 0:
-                saver.save(sess, args.checkpoint_dir + '/model', global_step=global_step.eval())
-
-        # save again at the end
-        saver.save(sess, args.checkpoint_dir + '/model', global_step=global_step.eval())
 
 if __name__ == '__main__':
-    main()
+    # arguments
+    parse = build_argparser()
+    args = parse.parse_args()
+
+    # load data
+    x, y = load_train_data()
+
+    # train model
+    train(x, y, vars(args))

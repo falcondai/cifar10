@@ -65,8 +65,8 @@ def build_model(n_classes=10):
         )
 
         logits = fc3
-        predicted_label = tf.nn.softmax(logits)
+        probs = tf.nn.softmax(logits)
         tf.add_to_collection('outputs', logits)
         tf.add_to_collection('outputs', probs)
 
-    return img_ph, keep_prob_ph, logits, predicted_label
+    return img_ph, keep_prob_ph, logits, probs

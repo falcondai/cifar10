@@ -35,8 +35,13 @@ def main():
     parse.add_argument('--checkpoint_path', required=True)
     parse.add_argument('--meta_path')
     parse.add_argument('--latest', action='store_true')
+    parse.add_argument('--output_dir', required=True)
+    parse.add_argument('--step_size', type=float, default=0.1)
 
     args = parse.parse_args()
+
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
     # load data
     print '* loading data from'
@@ -91,7 +96,7 @@ def main():
         loss_grad = tf.gradients(-loss, img_ph)[0]
         class_grad = []
         for k in xrange(10):
-            class_grad.append(tf.gradients(tf.slice(logits, [0, k], [1, 1]), img_ph)[0])
+            class_grad.append(tf.gradients(tf.slice(probs, [0, k], [1, 1]), img_ph)[0])
 
         # gs = tf.gradients(logits, img_ph)[0].eval(feed_dict=val_feed)
         # gs = tf.gradients(-loss, img_ph)[0].eval(feed_dict=val_feed)
@@ -117,7 +122,7 @@ def main():
                 img = x[[i]]
                 jj = 0
                 for j in xrange(4 * 10 + 1):
-                    gs = class_grad[k].eval(feed_dict={
+                    prob_val, gs = sess.run([probs, class_grad[k]], feed_dict={
                         img_ph: img,
                         keep_prob_ph: 1.0,
                     })
@@ -126,15 +131,16 @@ def main():
                     #     label_ph: [k],
                     #     keep_prob_ph: 1.0,
                     # })
-                    img = np.clip(img + 0.005 * gs, 0, 1)
+                    img = np.clip(img + args.step_size * gs, 0, 1)
                     if j % 10 == 0:
                         jj += 1
                         subplot(10, 5, 5 * k + jj)
+                        title('%.4f' % prob_val[0][k])
                         imshow(img[0], interpolation='none')
                         axis('off')
 
-            plt.subplots_adjust(wspace=0, hspace=0)
-            savefig('dream_l2/%i_%s.png' % (i, labels[y[i]]), bbox_inches='tight')
+            plt.subplots_adjust(wspace=0, hspace=1)
+            savefig('%s/%i_%s.png' % (args.output_dir, i, labels[y[i]]), bbox_inches='tight')
 
 if __name__ == '__main__':
     main()
