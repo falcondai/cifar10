@@ -17,6 +17,7 @@ def build_model(n_classes=10, batch=None):
             weights_initializer=tf.contrib.layers.xavier_initializer_conv2d(),
             scope='conv1'
         )
+        tf.add_to_collection(tf.GraphKeys.ACTIVATIONS, conv1)
 
         pool1 = tf.nn.max_pool(conv1, [1, 3, 3, 1], [1, 2, 2, 1], 'SAME', name='pool1')
 
@@ -29,6 +30,7 @@ def build_model(n_classes=10, batch=None):
             weights_initializer=tf.contrib.layers.xavier_initializer_conv2d(),
             scope='conv2'
         )
+        tf.add_to_collection(tf.GraphKeys.ACTIVATIONS, conv2)
 
         pool2 = tf.nn.max_pool(conv2, [1, 3, 3, 1], [1, 2, 2, 1], 'SAME', name='pool2')
 
@@ -39,8 +41,10 @@ def build_model(n_classes=10, batch=None):
             num_outputs=n_classes,
             biases_initializer=tf.zeros_initializer,
             weights_initializer=tf.contrib.layers.xavier_initializer(),
+            activation_fn=None,
             scope='fc1'
         )
+        tf.add_to_collection(tf.GraphKeys.ACTIVATIONS, fc1)
 
         logits = fc1
         probs = tf.nn.softmax(logits, name='probs')

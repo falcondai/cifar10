@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 
-def build_model(n_classes=10, batch=None):
-    img_ph = tf.placeholder('float', [batch, 32, 32, 3], name='image')
+def build_model(width=32, n_classes=10, batch=None):
+    img_ph = tf.placeholder('float', [batch, width, width, 3], name='image')
     keep_prob_ph = tf.placeholder('float', name='keep_prob')
     tf.add_to_collection('inputs', img_ph)
     tf.add_to_collection('inputs', keep_prob_ph)
@@ -19,7 +19,7 @@ def build_model(n_classes=10, batch=None):
         )
         tf.add_to_collection(tf.GraphKeys.ACTIVATIONS, conv1)
 
-        pool1 = tf.nn.max_pool(conv1, [1, 3, 3, 1], [1, 2, 2, 1], 'SAME', name='pool1')
+        pool1 = tf.contrib.layers.max_pool2d(inputs=conv1, kernel_size=[3, 3], stride=[2, 2], scope='pool1')
 
         conv2 = tf.contrib.layers.convolution2d(
             inputs=pool1,
@@ -32,28 +32,16 @@ def build_model(n_classes=10, batch=None):
         )
         tf.add_to_collection(tf.GraphKeys.ACTIVATIONS, conv2)
 
-        pool2 = tf.nn.max_pool(conv2, [1, 3, 3, 1], [1, 2, 2, 1], 'SAME', name='pool2')
+        pool2 = tf.contrib.layers.max_pool2d(inputs=conv2, kernel_size=[3, 3], stride=[2, 2], scope='pool2')
 
-        conv3 = tf.contrib.layers.convolution2d(
-            inputs=pool2,
-            num_outputs=64,
-            kernel_size=(5, 5),
-            activation_fn=tf.nn.relu,
-            biases_initializer=tf.zeros_initializer,
-            weights_initializer=tf.contrib.layers.xavier_initializer_conv2d(),
-            scope='conv3'
-        )
-        tf.add_to_collection(tf.GraphKeys.ACTIVATIONS, conv3)
-
-        pool3 = tf.nn.max_pool(conv3, [1, 3, 3, 1], [1, 2, 2, 1], 'SAME', name='pool3')
-
-        conv_output = pool3
+        conv_output = pool2
 
         fc1 = tf.contrib.layers.fully_connected(
-            inputs=tf.nn.dropout(tf.contrib.layers.flatten(conv_output), keep_prob_ph),
+            inputs=tf.contrib.layers.flatten(conv_output),
             num_outputs=n_classes,
             biases_initializer=tf.zeros_initializer,
             weights_initializer=tf.contrib.layers.xavier_initializer(),
+            weights_regularizer=tf.contrib.layers.l2_regularizer(1.),
             activation_fn=None,
             scope='fc1'
         )

@@ -1,3 +1,5 @@
+# deep dream-like gradient ascent on input image
+
 import tensorflow as tf
 import numpy as np
 import os, sys, cPickle, time, glob, itertools
@@ -62,8 +64,8 @@ def main():
         labels = cPickle.load(f)['label_names']
     print labels
 
-    # with tf.get_default_graph().gradient_override_map({'Relu': 'GuidedRelu'}):
-    img_ph, keep_prob_ph, logits, probs = build_model(batch=1)
+    with tf.get_default_graph().gradient_override_map({'Relu': 'GuidedRelu'}):
+        img_ph, keep_prob_ph, logits, probs = build_model(batch=1)
     # with tf.variable_scope('', reuse=True):
         # img_ph2, keep_prob_ph2, logits2, probs2 = build_model(batch=1)
 

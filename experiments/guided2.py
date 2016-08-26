@@ -6,7 +6,7 @@ import argparse
 from guided_relu_op import *
 from pylab import *
 # from models.cp2f3d_l2 import build_model
-from models.cp2f3d import build_model
+from models.cp2f1d import build_model
 
 def restore_vars(sess, checkpoint_path, latest, meta_path=None):
     """ Restore saved net, global score and step, and epsilons OR
@@ -55,10 +55,10 @@ def main():
         labels = cPickle.load(f)['label_names']
     print labels
 
-    with tf.get_default_graph().gradient_override_map({'Relu': 'GuidedRelu'}):
-        img_ph, keep_prob_ph, logits, probs = build_model(batch=1)
-    with tf.variable_scope('', reuse=True):
-        img_ph2, keep_prob_ph2, logits2, probs2 = build_model(batch=1)
+    # with tf.get_default_graph().gradient_override_map({'Relu': 'GuidedRelu'}):
+    img_ph, keep_prob_ph, logits, probs = build_model(batch=1)
+    # with tf.variable_scope('', reuse=True):
+        # img_ph2, keep_prob_ph2, logits2, probs2 = build_model(batch=1)
 
     saver = tf.train.Saver(max_to_keep=2, keep_checkpoint_every_n_hours=1)
     with tf.Session() as sess:
@@ -88,7 +88,7 @@ def main():
         max_logit = tf.reduce_max(logits)
         class_grad = []
         for k in xrange(10):
-            class_grad.append(tf.gradients(tf.slice(logits, [0, k], [1, 1]), img_ph)[0])
+            class_grad.append(tf.gradients(tf.slice(probs, [0, k], [1, 1]), img_ph)[0])
 
         # gs = tf.gradients(logits, img_ph)[0].eval(feed_dict=val_feed)
         # gs = tf.gradients(-loss, img_ph)[0].eval(feed_dict=val_feed)
@@ -126,7 +126,7 @@ def main():
                 axis('off')
 
             plt.subplots_adjust(wspace=0, hspace=0)
-            savefig('guided/%i_%s_%s.png' % (i, labels[y[i]], labels[pred_val[0]]), bbox_inches='tight')
+            savefig('non-guided/%i_%s_%s.png' % (i, labels[y[i]], labels[pred_val[0]]), bbox_inches='tight')
 
         print 'total accuracy', total_accuracy / n_samples
         print confusion_matrix

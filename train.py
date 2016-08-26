@@ -95,10 +95,22 @@ def train(x, y, args):
         # summary
         if not args['no_summary']:
             tf.scalar_summary('learning_rate', learning_rate)
-            tf.scalar_summary('class_loss', class_loss)
-            tf.scalar_summary('regularizer', regularizer)
-            tf.scalar_summary('loss', loss)
+            tf.scalar_summary('loss/class_loss', class_loss)
+            tf.scalar_summary('loss/regularizer', regularizer)
+            tf.scalar_summary('loss/total_loss', loss)
             tf.scalar_summary('accuracy', accuracy)
+
+            print '* extra summary'
+            for v in tf.get_collection(tf.GraphKeys.ACTIVATIONS):
+                tf.histogram_summary('activations/%s' % v.name, v)
+                print 'activations/%s' % v.name
+                tf.scalar_summary('sparsity/%s' % v.name, tf.nn.zero_fraction(v))
+                print 'sparsity/%s' % v.name
+
+            for v in tf.trainable_variables():
+                tf.histogram_summary('gradients/%s' % v.name, tf.gradients(loss, v))
+                print 'gradients/%s' % v.name
+
             summary_op = tf.merge_all_summaries()
 
         saver = tf.train.Saver(max_to_keep=2, keep_checkpoint_every_n_hours=1)

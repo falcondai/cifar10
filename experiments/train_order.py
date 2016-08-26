@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# measure the impact of different training sample ordering
+
 import sys
 from train import train, load_train_data, build_argparser
 

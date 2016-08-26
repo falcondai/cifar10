@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# measure the impact of model random initialization
+
 import sys
 from train import train, load_train_data, build_argparser
 
