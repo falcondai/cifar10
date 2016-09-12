@@ -2,7 +2,7 @@
 
 import tensorflow as tf
 import numpy as np
-import os, sys, cPickle, time, glob, itertools
+import os, sys, cPickle, time, glob, itertools, json
 import tqdm
 import argparse
 import importlib
@@ -62,10 +62,8 @@ def train(x, y, args):
 
     print '* training hyperparameters:'
     n_run = get_current_run_id(args['checkpoint_dir'])
-    with open('%s/hyperparameters.%i.txt' % (args['checkpoint_dir'], n_run), 'wb') as hpf:
-        for k in sorted(args.keys()):
-            print k, args[k]
-            hpf.write('%s = %r\n' % (k, args[k]))
+    with open('%s/hyperparameters.%i.json' % (args['checkpoint_dir'], n_run), 'wb') as hpf:
+        json.dump(args, hpf)
 
     with tf.Graph().as_default() as g:
         # model
@@ -85,6 +83,8 @@ def train(x, y, args):
 
         if args['optimizer'] == 'adam':
             train_op = tf.train.AdamOptimizer(learning_rate, args['adam_beta1'], args['adam_beta2'], args['adam_epsilon']).minimize(loss, global_step=global_step)
+        if args['optimizer'] == 'ag':
+            train_op = tf.train.MomentumOptimizer(learning_rate, args['momentum'], use_nesterov=True).minimize(loss, global_step=global_step)
         else:
             train_op = tf.train.MomentumOptimizer(learning_rate, args['momentum']).minimize(loss, global_step=global_step)
 
@@ -158,7 +158,7 @@ def build_argparser():
     parse.add_argument('--n_save_interval', type=int, default=16)
     parse.add_argument('--n_train_steps', type=int, default=1024)
     parse.add_argument('--model', required=True)
-    parse.add_argument('--optimizer', choices=['adam', 'momentum'], default='momentum')
+    parse.add_argument('--optimizer', choices=['adam', 'momentum', 'ag'], default='momentum')
     parse.add_argument('--initial_learning_rate', type=float, default=0.01)
     parse.add_argument('--n_decay_steps', type=int, default=512)
     parse.add_argument('--no_decay_staircase', action='store_true')
