@@ -61,6 +61,8 @@ def train(x, y, args):
             pass
 
     print '* training hyperparameters:'
+    for k in sorted(args.keys()):
+        print k, args[k]
     n_run = get_current_run_id(args['checkpoint_dir'])
     with open('%s/hyperparameters.%i.json' % (args['checkpoint_dir'], n_run), 'wb') as hpf:
         json.dump(args, hpf)
