@@ -8,7 +8,7 @@ import argparse
 import importlib
 
 def get_current_run_id(checkpoint_dir):
-    paths = glob.glob('%s/hyperparameters.*.txt' % checkpoint_dir)
+    paths = glob.glob('%s/hyperparameters.*.json' % checkpoint_dir)
     if len(paths) == 0:
         return 0
     return sorted(map(lambda p: int(p.split('.')[-2]), paths))[-1] + 1
