@@ -7,6 +7,8 @@ import tqdm
 import argparse
 import importlib
 
+from eval import load_test_data
+
 def get_current_run_id(checkpoint_dir):
     paths = glob.glob('%s/hyperparameters.*.json' % checkpoint_dir)
     if len(paths) == 0:
@@ -46,8 +48,8 @@ def load_train_data(data_dir='data/cifar-10-batches-py'):
     print '* dataset shapes:', x.shape, y.shape
     return x, y
 
-def train(x, y, args):
-    summary_dir = 'tf-log/%s-%d' % (os.path.basename(args['checkpoint_dir']), time.time())
+def train(x, y, args, test_x=None, test_y=None):
+    summary_dir = 'tf-log/%d-%s' % (time.time(), os.path.basename(args['checkpoint_dir']))
 
     # set seeds
     np.random.seed(args['np_seed'])
@@ -96,11 +98,11 @@ def train(x, y, args):
 
         # summary
         if not args['no_summary']:
-            tf.scalar_summary('learning_rate', learning_rate)
-            tf.scalar_summary('loss/class_loss', class_loss)
-            tf.scalar_summary('loss/regularizer', regularizer)
-            tf.scalar_summary('loss/total_loss', loss)
-            tf.scalar_summary('accuracy', accuracy)
+            tf.scalar_summary('train/learning_rate', learning_rate)
+            tf.scalar_summary('train/class_loss', class_loss)
+            tf.scalar_summary('train/regularizer', regularizer)
+            tf.scalar_summary('train/total_loss', loss)
+            tf.scalar_summary('train/accuracy', accuracy)
 
             print '* extra summary'
             for v in tf.get_collection(tf.GraphKeys.ACTIVATIONS):
@@ -114,6 +116,14 @@ def train(x, y, args):
                 print 'gradients/%s' % v.name
 
             summary_op = tf.merge_all_summaries()
+
+            if args['test_model']:
+                test_class_loss = tf.placeholder('float')
+                test_accuracy = tf.placeholder('float')
+                test_summary_op = tf.merge_summary([
+                    tf.scalar_summary('test/class_loss', test_class_loss),
+                    tf.scalar_summary('test/accuracy', test_accuracy),
+                ])
 
         saver = tf.train.Saver(max_to_keep=2, keep_checkpoint_every_n_hours=1)
         with tf.Session() as sess:
@@ -139,6 +149,27 @@ def train(x, y, args):
                     if not args['no_summary']:
                         writer.add_summary(sess.run(summary_op, feed_dict=val_feed), global_step.eval())
 
+                        if args['test_model']:
+                            test_class_loss_val = 0.
+                            test_accuracy_val = 0.
+                            test_sample_size = len(tx)
+                            for ti in xrange(0, test_sample_size, args['batch_size']):
+                                batch_tx = tx[ti:ti + args['batch_size']]
+                                batch_ty = ty[ti:ti + args['batch_size']]
+                                batch_n = len(batch_tx)
+                                test_feed = {
+                                    img_ph: batch_tx,
+                                    label_ph: batch_ty,
+                                    keep_prob_ph: 1.0,
+                                }
+                                batch_loss, batch_acc = sess.run([class_loss, accuracy], feed_dict=test_feed)
+                                test_class_loss_val += batch_n * batch_loss
+                                test_accuracy_val += batch_n * batch_acc
+                            writer.add_summary(sess.run(test_summary_op, feed_dict={
+                                test_class_loss: test_class_loss_val / test_sample_size,
+                                test_accuracy: test_accuracy_val / test_sample_size,
+                            }), global_step.eval())
+
                 train_feed = {
                     img_ph: batch_x,
                     label_ph: batch_y,
@@ -156,6 +187,7 @@ def build_argparser():
     parse = argparse.ArgumentParser()
     parse.add_argument('--checkpoint_dir', required=True)
     parse.add_argument('--batch_size', type=int, default=32)
+    parse.add_argument('--test_model', action='store_true')
     parse.add_argument('--n_eval_interval', type=int, default=8)
     parse.add_argument('--n_save_interval', type=int, default=16)
     parse.add_argument('--n_train_steps', type=int, default=1024)
@@ -186,6 +218,9 @@ if __name__ == '__main__':
 
     # load data
     x, y = load_train_data()
-
-    # train model
-    train(x, y, vars(args))
+    if args.test_model:
+        tx, ty = load_test_data()
+        # train model
+        train(x, y, vars(args), tx, ty)
+    else:
+        train(x, y, vars(args))

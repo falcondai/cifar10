@@ -75,7 +75,7 @@ def evaluate(x, y, labels, checkpoint_path, meta_path, batch_size):
                 count = confusion_matrix[k].sum()
                 precision = confusion_matrix[k, k] * 1. / confusion_matrix[:, k].sum()
                 recall = confusion_matrix[k, k] * 1. / confusion_matrix[k, :].sum()
-                print 'class %i %s: count %i precision %g recall %g' % (k, labels[k], count, precision, recall)
+                print 'class {} {:>16}:\tcount {}\tprecision {:.2%}\trecall {:.2%}'.format(k, labels[k], count, precision, recall)
 
             total_accuracy /= n_samples
             print 'total accuracy', total_accuracy
