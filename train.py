@@ -48,8 +48,8 @@ def load_train_data(data_dir='data/cifar-10-batches-py'):
     print '* dataset shapes:', x.shape, y.shape
     return x, y
 
-def train(x, y, args, test_x=None, test_y=None):
-    summary_dir = 'tf-log/%d-%s' % (time.time(), os.path.basename(args['checkpoint_dir']))
+def train(x, y, args, build_model, test_x=None, test_y=None):
+    summary_dir = 'tf-log/%s%d-%s' % (args['summary_prefix'], time.time(), os.path.basename(args['checkpoint_dir']))
 
     # set seeds
     np.random.seed(args['np_seed'])
@@ -72,8 +72,7 @@ def train(x, y, args, test_x=None, test_y=None):
     with tf.Graph().as_default() as g:
         # model
         print '* building model %s' % args['model']
-        model = importlib.import_module('models.%s' % args['model'])
-        img_ph, keep_prob_ph, logits, probs = model.build_model()
+        img_ph, keep_prob_ph, logits, probs = build_model()
         label_ph = tf.placeholder('int64', name='label')
 
         # loss
@@ -152,10 +151,10 @@ def train(x, y, args, test_x=None, test_y=None):
                         if args['test_model']:
                             test_class_loss_val = 0.
                             test_accuracy_val = 0.
-                            test_sample_size = len(tx)
+                            test_sample_size = len(test_x)
                             for ti in xrange(0, test_sample_size, args['batch_size']):
-                                batch_tx = tx[ti:ti + args['batch_size']]
-                                batch_ty = ty[ti:ti + args['batch_size']]
+                                batch_tx = test_x[ti:ti + args['batch_size']]
+                                batch_ty = test_y[ti:ti + args['batch_size']]
                                 batch_n = len(batch_tx)
                                 test_feed = {
                                     img_ph: batch_tx,
@@ -207,6 +206,7 @@ def build_argparser():
     parse.add_argument('--tf_seed', type=int, default=1234)
     parse.add_argument('--restart', action='store_true')
     parse.add_argument('--no_summary', action='store_true')
+    parse.add_argument('--summary_prefix', default='')
 
     return parse
 
@@ -216,11 +216,14 @@ if __name__ == '__main__':
     parse = build_argparser()
     args = parse.parse_args()
 
+    # model
+    model = importlib.import_module('models.%s' % args['model'])
+
     # load data
     x, y = load_train_data()
     if args.test_model:
         tx, ty = load_test_data()
         # train model
-        train(x, y, vars(args), tx, ty)
+        train(x, y, vars(args), model.build_model, tx, ty)
     else:
-        train(x, y, vars(args))
+        train(x, y, vars(args), model.build_model)
