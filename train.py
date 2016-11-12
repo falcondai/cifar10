@@ -217,7 +217,7 @@ if __name__ == '__main__':
     args = parse.parse_args()
 
     # model
-    model = importlib.import_module('models.%s' % args['model'])
+    model = importlib.import_module('models.%s' % args.model)
 
     # load data
     x, y = load_train_data()
